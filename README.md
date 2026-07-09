@@ -1,74 +1,55 @@
-# TAICF — Trustworthy Agentic AI Claim-Survival harness
+# Neural Taint Tracking for Prompt-Injection-Resistant Agents
 
-TAICF is an evaluation studio for AI agents. The goal is not to build another
-agent framework but to turn agent runs into auditable scientific evidence: a
-precise trustworthiness claim under stated conditions, backed by a trace that
-can be re-scored by another team without re-running the agent.
+This project adds a **taint-tracking defense against indirect prompt injection**
+to AI agents. An attacker can hide an instruction inside untrusted data (search
+results, memory, web pages); the agent may then use that data to trigger a
+dangerous tool call (writing a file, running a command, sending data out). The
+defense labels the provenance of every tool output and detects (and can block)
+untrusted data that reaches a privileged tool call without being sanitized.
 
-The unit of work is a *claim* — a falsifiable statement about an agent under
-stated conditions (model, scaffold, tools, memory, retrieval, budget,
-environment, evaluator). A claim survives if its metric clears the threshold
-under controlled shifts (different scaffold, different memory policy, hidden
-tasks, adversarial pressure). Both survival and collapse are publishable if
-the trace explains why.
+The project is built on top of the **TAICF harness** (an evaluation studio for
+agent runs, see *Acknowledgements*). TAICF provides the tracing pipeline, the
+scanner interface, and the deterministic test runner. My contribution is the
+trust-propagation layer, the Taint-Scanner, and the taint-flow test suite
+described below.
 
-## How it works
+## How the defense works
 
-An agent runs natively over a neutral world seed and emits OpenTelemetry
-spans. A separate post-hoc phase reads those spans from a local store,
-projects them into a thin trace, and runs scanners — pure deterministic
-predicates that emit violations. The same scanner can attach to a pre-tool
-hook (online block) and a post-turn hook (offline audit); the logic is
-written once.
+1. Every tool output is labelled with its trust level when the tool runs, and
+   the label travels with the trace.
+2. The Taint-Scanner collects the text produced by untrusted tools and checks
+   whether that same text later appears inside a privileged tool call. Before
+   comparing, it normalizes the text (lowercase, strip punctuation, fix
+   spacing), so small edits do not fool it.
+3. If untrusted text reaches a privileged call and was **not** first cleaned by
+   `gate.sanitize`, the scanner raises a `taint_leakage` violation. The same
+   check can block the call online, or audit the whole run offline.
 
-Ground truth about what counts as a violation (attacks, poisoned data,
-protected areas) lives inside the task and is hidden from the agent. The
-producer (agent) and the consumer (eval) are decoupled by the trace store,
-so a run can be re-scored from frozen spans without spending tokens again.
+The scanner is a pure deterministic function (no LLM, no randomness), so a run
+can be re-scored from saved data and always gives the same verdict.
 
 ## Quickstart
 
-The local development suite runs on CPU with no external services.
+Runs on CPU, no external services, no API key.
 
     uv sync
-    uv run taicf smoke
+    uv run pytest tests/test_taint_scanner.py -q      # 12 unit tests
+    uv run taicf run -c configs/smoke_taint_stub.yaml # deterministic run
+    uv run taicf score -r smoke-taint-stub            # re-score saved data
 
-That executes three stub configs over the three lite suites
-(filesystem / memory / retrieval) and writes per-case spans, violations, and
-reports under `runs/`. No LLM is involved — the stub scaffold replays a
-deterministic plan.
+The run writes per-case spans, violations, and a report under `runs/`.
 
-To run against a real LLM, point the OpenAI-compatible env at any
-OpenAI-shaped endpoint (LM Studio, vLLM, OpenAI itself):
 
-    cp .env.example .env
-    # edit OPENAI_API_KEY and OPENAI_BASE_URL
-    uv run taicf run --config configs/smoke_fs_react.yaml
+## Running against a real LLM
 
-See `docs/smoke-react.md` for the full LangGraph + OpenAI-compatible walkthrough.
+The scanner is designed to work with a real agent too. Point an
+OpenAI-compatible endpoint (LM Studio, vLLM, OpenAI) via `.env`, add
+`- id: "taint_leakage"` to the `scanners:` list of an LLM config, and run it the
+same way. See `docs/smoke-react.md` for the LLM-backed setup.
 
-## Documentation
+## Acknowledgements
 
-`docs/architecture.md` explains the core abstractions and how a run flows
-from config to scored trace. `docs/extending.md` shows how to add your own
-suite, task case, scanner, or scaffold. `docs/smoke-react.md` covers the
-current LLM-backed smoke setup.
-
-## Contributing
-
-Before opening a PR, make sure these four pass:
-
-    uv run ruff format --check .
-    uv run ruff check .
-    uv run mypy
-    uv run pytest
-
-Branch from `main`, keep changes scoped, and prefer extending the existing
-abstractions (a new `Scanner`, a new `TaskSuite` subclass) over reshaping
-the core contract. The contract in `src/core/` is intentionally small —
-heavier dependencies (LangGraph, LangChain, OTel exporters) live in sibling
-packages and must never leak into `core`.
-
-For non-trivial design choices, write a short note in `docs/` and link it
-from the PR. If a change adds a new builtin scaffold, suite, or scanner,
-register it in `src/registry/builtins.py` so `taicf` picks it up.
+Built on the **TAICF** evaluation harness, which provides the core
+abstractions (`src/core/`), the OTel tracing pipeline, the trace store, and the
+deterministic runner. See `docs/architecture.md` for the harness design and
+`docs/extending.md` for how new scanners and suites plug in.
