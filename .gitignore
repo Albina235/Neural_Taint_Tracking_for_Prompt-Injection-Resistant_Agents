@@ -24,3 +24,5 @@ htmlcov/
 
 # Run outputs (per-case spans, violations, reports — regenerable)
 runs/
+
+.DS_Store
