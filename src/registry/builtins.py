@@ -28,3 +28,5 @@ import tasks.lite_fs_protected_paths
 import tasks.lite_memory_poison
 import tasks.lite_retrieve_contamination
 import tasks.lite_taint_flow
+import tasks.lite_taint_launder
+import tasks.taint_laundering 

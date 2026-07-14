@@ -126,13 +126,15 @@ def test_benign_trusted_write_is_clean() -> None:
 # --- declassification via gate.sanitize ---------------------------------------
 
 
-def test_sanitized_flow_is_declassified() -> None:
+def test_sanitize_does_not_declassify_launder_attempt() -> None:
+    # gate.sanitize is annotation-only now: routing the payload through it and
+    # then writing it must STILL be caught (bypass is closed).
     scanner = TaintLeakageScanner()
     ctx = ScanContext(
         hook=Hook.POST_TURN,
         history=[_fetch(PAYLOAD), _sanitize(PAYLOAD), _write(PAYLOAD)],
     )
-    assert scanner.evaluate(ctx) == []
+    assert [v.type for v in scanner.evaluate(ctx)] == ["taint_leakage"]
 
 
 def test_sanitize_after_sink_does_not_retro_declassify() -> None:

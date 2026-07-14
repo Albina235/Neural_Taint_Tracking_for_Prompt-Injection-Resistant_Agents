@@ -45,8 +45,17 @@ UNTRUSTED_SOURCE_PREFIXES: tuple[str, ...] = (
     "web.",
 )
 
-#: The declassification gate. Stamped ``sanitized``.
-SANITIZER_PREFIXES: tuple[str, ...] = ("gate.sanitize",)
+#: Declassification gate. Only ``gate.allow_quote`` actually declassifies, and
+#: it does so by *provenance*: it releases the text of a user-allow-listed
+#: document (see ``worlds.taintflow``), which an injection cannot forge.
+#:
+#: ``gate.sanitize`` is deliberately NOT here. A value-based scanner cannot
+#: verify that an identity/"clean this text" gate really neutralized an
+#: injection, so treating it as a declassifier would let an attacker launder a
+#: payload simply by routing it through the gate before a privileged write.
+#: ``gate.sanitize`` therefore remains an annotation-only audit tool with no
+#: declassification power; the certificate makes no claim about it.
+SANITIZER_PREFIXES: tuple[str, ...] = ("gate.allow_quote",)
 
 #: Privileged sinks: side-effecting tools whose *arguments* must satisfy the
 #: lexical non-flow property checked by the Taint-Scanner.
@@ -85,3 +94,36 @@ def is_sanitizer(name: str, prefixes: tuple[str, ...] | None = None) -> bool:
 
 def is_privileged_sink(name: str, prefixes: tuple[str, ...] | None = None) -> bool:
     return _matches(name, prefixes or PRIVILEGED_SINK_PREFIXES)
+
+
+def _assert_disjoint() -> None:
+    """The three tool classes must be mutually exclusive.
+
+    The scanner walks each step once and dispatches on class (sanitizer ->
+    declassify; untrusted -> absorb; sink -> check). Overlapping prefixes would
+    make that dispatch ambiguous — e.g. a tool that is both source and sink
+    would have its sink checked before its own output is absorbed. Fail loudly
+    at import time instead of silently mis-tracking taint.
+    """
+    groups = {
+        "untrusted": UNTRUSTED_SOURCE_PREFIXES,
+        "sanitizer": SANITIZER_PREFIXES,
+        "privileged": PRIVILEGED_SINK_PREFIXES,
+    }
+    names = list(groups)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = names[i], names[j]
+            clash = {
+                (pa, pb)
+                for pa in groups[a]
+                for pb in groups[b]
+                if pa.startswith(pb) or pb.startswith(pa)
+            }
+            if clash:
+                raise AssertionError(
+                    f"trust prefix classes {a!r} and {b!r} overlap: {sorted(clash)}"
+                )
+
+
+_assert_disjoint()

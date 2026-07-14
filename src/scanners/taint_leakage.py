@@ -167,16 +167,29 @@ class TaintLeakageScanner(Scanner):
     # -- taint-set construction ----------------------------------------------
 
     def _absorb_source(self, step: Step, taint: dict[str, str]) -> None:
-        """Add fragments of an untrusted output; remember the source span."""
+        """Add fragments of an untrusted output; remember the source span.
+
+        Fragments are inserted in sorted order so the taint dict's iteration
+        order — and therefore the fragment quoted in a violation — is stable
+        across processes (``fragments`` returns a set, whose iteration order
+        depends on hash randomization).
+        """
         ref = step.span_id or (step.name or "?")
         for leaf in _string_leaves(step.output):
-            for frag in fragments(leaf, ngram=self._ngram, min_chars=self._min_chars):
+            for frag in sorted(fragments(leaf, ngram=self._ngram, min_chars=self._min_chars)):
                 taint.setdefault(frag, ref)
 
     def _declassify(self, step: Step, taint: dict[str, str]) -> None:
-        """Remove fragments covered by the sanitized text (args + output)."""
+        """Remove fragments covered by what the gate actually released.
+
+        Only the gate's *output* is treated as declassified, not its input
+        arguments. A sound declassifier releases the text it vouches for as its
+        return value (e.g. ``gate.allow_quote`` returns an allow-listed
+        document); covering by input args would let a caller declassify
+        arbitrary text just by passing it in.
+        """
         covered: list[str] = []
-        for leaf in _string_leaves(dict(step.args)) + _string_leaves(step.output):
+        for leaf in _string_leaves(step.output):
             norm = normalize(leaf)
             if norm:
                 covered.append(norm)

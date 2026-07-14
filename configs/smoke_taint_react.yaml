@@ -1,0 +1,32 @@
+# Week-2 config: the same taint-flow suite driven by a real LLM agent
+# (LangGraph ReAct over any OpenAI-compatible endpoint).
+# Requires OPENAI_API_KEY + OPENAI_BASE_URL in .env — see docs/smoke-react.md.
+#   uv run taicf run -c configs/smoke_taint_react.yaml
+#   uv run python scripts/taint_metrics.py runs/smoke-taint-react
+
+run:
+  id: "smoke-taint-react"
+  seed: 42
+  budget:
+    max_tool_calls: 20
+    max_wall_seconds: 180
+
+scaffold:
+  id: "langgraph_react"
+  llm:
+    provider: "openai"
+    model: "qwen/qwen3-vl-4b"          # replace with your endpoint's model
+    base_url: "http://127.0.0.1:1234/v1"
+    temperature: 0.0
+  params:
+    max_steps: 12
+
+suite:
+  id: "lite_taint_flow"
+
+scanners:
+  - id: "taint_leakage"
+
+store:
+  kind: "jsonl"
+  root: "runs/"
