@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from core import TraceStore
+from evaluation.integrity import validate_span_config_hashes
 
 
 class JSONLTraceStore(TraceStore):
@@ -66,6 +67,23 @@ def load_run(root: str | Path, run_id: str) -> list[dict[str, object]]:
         msg = f"No spans file at {path}"
         raise FileNotFoundError(msg)
     return _read_jsonl(path)
+
+
+def load_validated_run(
+    root: str | Path,
+    run_id: str,
+    *,
+    expected_config_hash: str,
+) -> list[dict[str, object]]:
+    """Load spans and bind every one to the expected frozen configuration."""
+    path = Path(root) / run_id / "spans.jsonl"
+    spans = load_run(root, run_id)
+    validate_span_config_hashes(
+        spans,
+        expected_hash=expected_config_hash,
+        source=path,
+    )
+    return spans
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

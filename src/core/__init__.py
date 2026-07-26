@@ -17,6 +17,7 @@ from core.store import TraceStore
 from core.suite import TaskSuite
 from core.task import Attack, GroundTruth, Task
 from core.trace import Step, Trace
+from core.trust import TrustPolicy
 from core.world import World, WorldHandle
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "TaskSuite",
     "Trace",
     "TraceStore",
+    "TrustPolicy",
     "Verdict",
     "Violation",
     "World",

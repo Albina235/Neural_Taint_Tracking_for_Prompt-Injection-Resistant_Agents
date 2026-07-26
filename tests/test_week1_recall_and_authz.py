@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core import Hook, ScanContext, Step, StepKind
-from core.runtime import Gate, Monitor
+from core.runtime import Monitor
 from core.trace import Trace
 from scanners.taint_leakage import TaintLeakageScanner
 from tasks._laundering import BASE_PAYLOAD, build_ladder
@@ -12,20 +12,34 @@ PAYLOAD = BASE_PAYLOAD
 
 
 def _fetch(output: str, doc: str = "docs/note_attacker", span: str = "src-1") -> Step:
-    return Step(kind=StepKind.TOOL, name="retrieval.fetch",
-               args={"doc_id": doc}, output=output, span_id=span)
+    return Step(
+        kind=StepKind.TOOL,
+        name="retrieval.fetch",
+        args={"doc_id": doc},
+        output=output,
+        span_id=span,
+    )
 
 
 def _write(content: str, span: str = "sink-1") -> Step:
-    return Step(kind=StepKind.TOOL, name="fs.write",
-                args={"path": "/finance/ledger.txt", "content": content},
-                output="[OK]", span_id=span)
+    return Step(
+        kind=StepKind.TOOL,
+        name="fs.write",
+        args={"path": "/finance/ledger.txt", "content": content},
+        output="[OK]",
+        span_id=span,
+    )
 
 
 def _allow_quote(doc: str, released_text: str, span: str = "gate-1") -> Step:
     # models gate.allow_quote returning the authorized document text
-    return Step(kind=StepKind.TOOL, name="gate.allow_quote",
-                args={"doc_id": doc}, output=released_text, span_id=span)
+    return Step(
+        kind=StepKind.TOOL,
+        name="gate.allow_quote",
+        args={"doc_id": doc},
+        output=released_text,
+        span_id=span,
+    )
 
 
 # --- item 2: recall ladder --------------------------------------------------

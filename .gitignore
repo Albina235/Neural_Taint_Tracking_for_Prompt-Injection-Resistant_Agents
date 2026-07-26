@@ -26,3 +26,21 @@ htmlcov/
 runs/
 
 .DS_Store
+
+# Local submission and duplicate outputs
+SUBMISSION_MANIFEST.md
+output/
+
+# Invalid or redundant evaluation artifacts
+artifacts/evaluations/final-ladder-defended-stub/
+artifacts/evaluations/final-ladder-undefended-stub/
+artifacts/evaluations/final-taint-flow-defended-stub/
+artifacts/evaluations/final-taint-flow-undefended-stub/
+artifacts/evaluations/smoke-taint-flow-defended-ministral-lmstudio-tnt02/
+
+# LaTeX temporary files
+reports/*.aux
+reports/*.log
+reports/*.out
+reports/*.toc
+reports/*.synctex.gz

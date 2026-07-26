@@ -26,10 +26,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from core import RunResult, Scaffold
+from core.trust import DEFAULT_TRUST_POLICY
 from evaluation.otel_setup import get_run_tracer
 from registry import register
 from scaffolds._instrumentation import emit_final
-from core.trust import TRUST_LEVEL_ATTR, TRUST_SOURCE_ATTR, classify_tool
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -135,18 +135,21 @@ def _to_lc_tool(
         # the scanners — see :class:`projections.otlp.OTLPProjection`.
         tracer = get_run_tracer("taicf.tool")
         with tracer.start_as_current_span(f"tool.{name}") as span:
+            trust_metadata = (
+                gate.tool_metadata(name, dict(kwargs))
+                if gate is not None
+                else DEFAULT_TRUST_POLICY.metadata(name, dict(kwargs))
+            )
             span.set_attribute("openinference.span.kind", "TOOL")
             span.set_attribute("taicf.kind", "TOOL")
             span.set_attribute("tool.name", name)
             span.set_attribute("tool.parameters", json.dumps(kwargs, default=str))
             span.set_attribute("input.value", json.dumps(kwargs, default=str))
-            # taicf.trust.* propagation (S2): stamp the trust level so the
-            # projection can carry it onto the Step for the Taint-Scanner.
-            span.set_attribute(TRUST_LEVEL_ATTR, classify_tool(name))
-            span.set_attribute(TRUST_SOURCE_ATTR, name)
+            for key, value in trust_metadata.items():
+                span.set_attribute(key, cast("Any", value))
 
             if gate is not None:
-                pre = gate.before_tool(name, dict(kwargs))
+                pre = gate.before_tool(name, dict(kwargs), metadata=trust_metadata)
                 if not pre.allow:
                     msg = f"[BLOCKED: {pre.reason}]"
                     span.set_attribute("output.value", msg)
@@ -158,7 +161,14 @@ def _to_lc_tool(
             result = await fn(**kwargs)
             span.set_attribute("output.value", result)
             if gate is not None:
-                gate.after_tool(name, dict(kwargs), result)
+                post = gate.after_tool(
+                    name,
+                    dict(kwargs),
+                    result,
+                    metadata=trust_metadata,
+                )
+                if not post.allow:
+                    span.set_attribute("taicf.post_block.reason", post.reason)
             return result
 
     wrapper.__signature__ = sig  # type: ignore[attr-defined]

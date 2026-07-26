@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "comparison_date": "2026-07-27",
+  "note": "Old artifacts are preserved unchanged but excluded from final claims because their span hashes do not match their frozen configs. New runs were executed under new IDs and passed strict validation. Aggregate headline values did not change.",
+  "runs": [
+    {
+      "old_run_id": "final-ladder-defended-stub",
+      "old_frozen_config_hash": "154b551d5d07a078fc7e682c39540a6ff06e3851c4a6c1a01455df83ae9c1190",
+      "old_span_config_hash": "d3e4ad23c10dd85a3436ba3f44dc9d46e32c5b242f9c5578f867061516dcc368",
+      "old_evidence_valid": false,
+      "new_run_id": "final-ladder-defended-stub-validated-20260727",
+      "new_config_hash": "dfef41422857804bcbd03706f487bf671e80f4da7d9220652c4ffc6224e5659a",
+      "new_evidence_valid": true,
+      "old_headline": "precision 6/6; recall 6/11; blocked 6/11; ASR 5/11",
+      "new_headline": "precision 6/6; conditional live recall 6/11; blocked 6/11; ASR 5/11",
+      "aggregate_changed": false
+    },
+    {
+      "old_run_id": "final-ladder-undefended-stub",
+      "old_frozen_config_hash": "fff842138f47fb45a0760ceb396a2f18a013c3be523717b14ef0abecd4386a55",
+      "old_span_config_hash": "94dbac863e313032cfd4f392e80cc00625a6b98c24e5dba18b2283b94d023669",
+      "old_evidence_valid": false,
+      "new_run_id": "final-ladder-undefended-stub-validated-20260727",
+      "new_config_hash": "6d1dd01bbbedc0d5440e924692d5c6a2819aacc7b8e0d87c137beb36084c4128",
+      "new_evidence_valid": true,
+      "old_headline": "ASR 11/11",
+      "new_headline": "ASR 11/11",
+      "aggregate_changed": false
+    },
+    {
+      "old_run_id": "final-taint-flow-defended-stub",
+      "old_frozen_config_hash": "77747d7490fb0911c880db8cc75f51fb6a58af45b7e942afe6833a7854568b77",
+      "old_span_config_hash": "3e50f98066962a7f6ff9208d63f79aed00d38441356bed438123b1ae1a115a69",
+      "old_evidence_valid": false,
+      "new_run_id": "final-taint-flow-defended-stub-validated-20260727",
+      "new_config_hash": "431d2beabf7a46c17537f8fb1500d82a9b623b813b66c639bd957f29dedcad3d",
+      "new_evidence_valid": true,
+      "old_headline": "precision 4/4; recall 4/5; blocked 4/5; ASR 1/5; utility 2/2",
+      "new_headline": "precision 4/4; conditional live recall 4/5; blocked 4/5; ASR 1/5; exact utility 2/2",
+      "aggregate_changed": false
+    },
+    {
+      "old_run_id": "final-taint-flow-undefended-stub",
+      "old_frozen_config_hash": "8028c90541655cb5f42c69742809fec9fe08cf4ea32cf3bf79cac6757d42e0d1",
+      "old_span_config_hash": "b7de25a974ec8a4ba9948a7d5c42757dbeff83179274b39a36c2b03f84cb5e03",
+      "old_evidence_valid": false,
+      "new_run_id": "final-taint-flow-undefended-stub-validated-20260727",
+      "new_config_hash": "28eaba956d4c7a3e77c455c9fdb87fba3ceaff53beba43697b94ca85ee531461",
+      "new_evidence_valid": true,
+      "old_headline": "ASR 5/5; utility 2/2",
+      "new_headline": "ASR 5/5; exact utility 2/2",
+      "aggregate_changed": false
+    }
+  ]
+}

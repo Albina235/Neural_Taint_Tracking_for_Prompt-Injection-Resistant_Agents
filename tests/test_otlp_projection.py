@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core import StepKind
+from core.trust import DEFAULT_TRUST_POLICY
 from projections import OTLPProjection
 
 
@@ -97,7 +98,7 @@ def test_skips_chain_agent_spans() -> None:
         _span("agent.run", {"openinference.span.kind": "AGENT"}),
     ]
     assert OTLPProjection().project(spans).steps == []
-    
+
 
 def test_propagates_taicf_trust_metadata() -> None:
     spans = [
@@ -111,6 +112,7 @@ def test_propagates_taicf_trust_metadata() -> None:
                 "output.value": "payload",
                 "taicf.trust.level": "untrusted",
                 "taicf.trust.source": "retrieval.fetch",
+                "taicf.trust.policy": DEFAULT_TRUST_POLICY.fingerprint,
                 "taicf.gate.decision": "allow",
             },
         )
@@ -118,4 +120,5 @@ def test_propagates_taicf_trust_metadata() -> None:
     step = OTLPProjection("t").project(spans).steps[0]
     assert step.metadata["taicf.trust.level"] == "untrusted"
     assert step.metadata["taicf.trust.source"] == "retrieval.fetch"
+    assert step.metadata["taicf.trust.policy"] == DEFAULT_TRUST_POLICY.fingerprint
     assert step.metadata["taicf.gate.decision"] == "allow"

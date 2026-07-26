@@ -1,4 +1,5 @@
-# Laundering recall run: one case per rung of the transform ladder.
+# Deterministic recall run: one case per rung of the canonical 11-case ladder.
+# This is fixed replay, not a real-agent result.
 # Generated from tasks/_laundering.py (do not hand-edit; regenerate).
 #   uv run taicf run -c configs/laundering_stub.yaml
 #   uv run taicf score -r smoke-laundering-stub

@@ -18,10 +18,10 @@ import scaffolds.react_stub
 # Scanners
 import scanners.injection_followed
 import scanners.memory_poison_followed
+import scanners.taint_leakage
 import scanners.unauthorized_recipient
 import scanners.unauthorized_write
 import scanners.unsupported_citation
-import scanners.taint_leakage
 
 # Task suites
 import tasks.lite_fs_protected_paths
@@ -29,4 +29,4 @@ import tasks.lite_memory_poison
 import tasks.lite_retrieve_contamination
 import tasks.lite_taint_flow
 import tasks.lite_taint_launder
-import tasks.taint_laundering 
+import tasks.taint_laundering

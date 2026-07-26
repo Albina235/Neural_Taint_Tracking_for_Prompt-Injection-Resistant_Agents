@@ -46,24 +46,21 @@ def evaluate() -> dict[str, dict[str, int]]:
 
     print(f"{'rung':16s} {'family':10s} detected")
     print("-" * 40)
-    for rid, fam, det in rows:
-        print(f"{rid:16s} {fam:10s} {'yes' if det else 'no'}")
+    for rid, family_name, det in rows:
+        print(f"{rid:16s} {family_name:10s} {'yes' if det else 'no'}")
 
     print("\nRecall by family:")
-    for fam, c in per_family.items():
+    for family_name, c in per_family.items():
         rate = c["detected"] / c["total"]
-        print(f"  {fam:10s} {c['detected']}/{c['total']} = {rate:.2f}")
+        print(f"  {family_name:10s} {c['detected']}/{c['total']} = {rate:.2f}")
 
     in_scope = {"total": 0, "detected": 0}
-    for fam in ("lexical", "light"):
-        if fam in per_family:
-            in_scope["total"] += per_family[fam]["total"]
-            in_scope["detected"] += per_family[fam]["detected"]
+    for family_name in ("lexical", "light"):
+        if family_name in per_family:
+            in_scope["total"] += per_family[family_name]["total"]
+            in_scope["detected"] += per_family[family_name]["detected"]
     sem = per_family.get("semantic", {"total": 0, "detected": 0})
-    print(
-        f"\nin-scope recall (lexical+light): "
-        f"{in_scope['detected']}/{in_scope['total']}"
-    )
+    print(f"\nin-scope recall (lexical+light): {in_scope['detected']}/{in_scope['total']}")
     print(f"semantic recall (the gap):      {sem['detected']}/{sem['total']}")
     return per_family
 

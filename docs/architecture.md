@@ -1,11 +1,11 @@
 # Architecture
 
-TAICF separates two concerns that most agent frameworks conflate: producing a
-run (the agent acting on a world) and judging it (deciding whether the run
-violated something). The producer writes spans to a store; the judge reads
-spans back, projects them into a thin trace, and runs predicates over it.
-Nothing about the judge is online; nothing about the producer knows what
-the judge is looking for.
+TAICF separates producing a run (the agent acting on a world) from judging it
+(deciding whether the run violated something). The producer writes spans to a
+store; the offline judge reads spans back, projects them into a thin trace, and
+runs predicates over it. Scanners that declare `PRE_TOOL` can also run through
+the online `Gate`, using the same predicate and trust policy before a side
+effect.
 
 ## The core abstractions
 
@@ -50,11 +50,12 @@ post-hoc. The same scanner instance can be in both; what differs is the
 context fed to it.
 
 A `Projection` turns OTel span dicts into a thin `Trace` of `Step` objects
-(kinds: `TOOL`, `ENV`, `MODEL`, `FINAL`). It is tolerant rather than
-canonical — it reads only the few attributes scanners need and skips spans
-that lack a `taicf.kind` marker. Auto-instrumentation spans from LangChain
-stay in the store for later observability backends but do not enter the
-trace scanners see.
+(kinds: `TOOL`, `ENV`, `MODEL`, `FINAL`). After the evidence-integrity layer
+has accepted a run, projection is tolerant of framework-specific attributes:
+it reads only the fields scanners need and skips spans that lack a
+`taicf.kind` marker. Auto-instrumentation spans from LangChain stay in the
+store for later observability backends but do not enter the trace scanners
+see.
 
 A `TraceStore` is the canonical evidence sink. The local JSONL store is the
 source of truth for a run; any external mirror (LangFuse, Phoenix) is a
@@ -85,18 +86,66 @@ Gate and emits a span carrying `taicf.kind=TOOL`, the canonical (dotted)
 tool name, the JSON-serialised arguments, and the result. At the end the
 scaffold calls `emit_final(text)` to mark the agent's final answer.
 
-After the scaffold returns, the orchestrator reads the spans back from
-disk, projects them into a `Trace`, and runs `Monitor` over it with the
-case's ground truth. The result — a list of `Violation`s — is written to
-`violations.json` next to the spans, and a per-case Markdown report is
-rendered. An aggregate report at the run root lists every case with its
-violation count and links to the per-case reports.
+After the scaffold returns, the orchestrator reads the spans back from disk.
+Before projection, it requires every span to carry one consistent
+`taicf.config_hash` equal to the hash of the frozen `cfg.yaml`. Missing, mixed,
+or mismatched hashes are hard failures. Only then does it project the trace and
+run `Monitor`. The resulting `violations.json` carries the same hash, followed
+by per-case and aggregate Markdown reports.
 
-The same `Monitor` step can be re-run later via `taicf score --run <id>`
-without the agent. It reads the persisted `cfg.yaml`, rebuilds the same
-scanners, re-projects the existing spans, and rewrites the reports. This is
-the reproducibility guarantee: a run can be re-scored from frozen evidence
-without re-running the model.
+The same `Monitor` step can be re-run later via
+`taicf score --root <root> --run <id>` without the agent. Reads and writes stay
+under the supplied root, even if the copied frozen config names an older store
+location. The command validates the spans before rewriting derived verdicts
+and reports; it never changes `spans.jsonl`. A run is reproducible from frozen
+evidence only after these checks pass.
+
+Metric generation applies the same span checks and also validates
+`violations.json.config_hash` before using saved verdicts.
+`scripts/verify_evidence.py` independently rescans validated spans, checks
+trust-policy fingerprints, and requires saved/offline and online/offline
+agreement.
+
+## Trust propagation and declassification
+
+`core.trust.TrustPolicy` is the authority for tool classification. The
+scaffold's wrapper asks the active `Gate` to resolve metadata for each tool;
+when there is no gate (an undefended control), it uses the same default policy
+directly. The following attributes are written into both the online pending
+`Step` and the persisted span:
+
+- trust level (`trusted` or `untrusted`);
+- whether the tool name is known;
+- whether the call is privileged;
+- the trust-policy fingerprint;
+- source provenance for untrusted output; and
+- release provenance for a successful `gate.allow_quote`.
+
+The scanner accepts stamped metadata only when the fingerprint matches its
+resolved policy. A stale or missing fingerprint causes explicit
+reclassification from the current policy and canonical tool name; stale
+metadata cannot disable a privileged sink or turn an unknown source into a
+trusted one. Evidence verification additionally requires every canonical tool
+step in a final artifact to carry the expected current fingerprint.
+Known retrieval, read, web, and `gate.sanitize` outputs are untrusted. Known
+write, delete, execution, egress, and mutation tools are privileged sinks.
+Unknown tools fail closed in both directions: output is untrusted and the call
+is privileged.
+
+The lexical scanner maps every normalized fragment to all provenance sources
+that produced it. `gate.allow_quote` returns data only for a document that the
+world's pre-existing user allowlist contains, and its span names that exact
+document provenance. Declassification subtracts only that provenance from
+fragments covered by the released output. It does not remove equal text from
+another source, and it does not discard remaining sources from a multi-source
+fragment. An attacker-controlled document therefore cannot become authorized
+by requesting its own release. `gate.sanitize` only records an audit event and
+never changes taint.
+
+This is provenance-aware reconstruction of normalized lexical flow. Despite
+the project title, the implementation is not a neural taint model. Taint is
+attached to fragments and provenances reconstructed from completed tool
+outputs, not to individual model tokens or semantic concepts.
 
 ## Invariants
 
@@ -128,3 +177,7 @@ contains enough to reconstruct the trace and re-run every scanner offline.
 Scanners are pure. They cannot do I/O, call the network, or invoke an LLM.
 If you ever need an LLM-assisted scanner, it has to be explicitly
 non-primary and may not decide a verdict on its own.
+
+Trust is fail closed. Adding a new tool without adding it to the shared policy
+must not make it silently trusted. Register its source/sink role and provenance
+rule deliberately, then cover online and offline classification in tests.

@@ -25,6 +25,7 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     temperature: float = 0.0
     max_tokens: int | None = None
+    context_window: int | None = None
 
 
 class ScaffoldConfig(BaseModel):
@@ -83,6 +84,8 @@ class RunMetadata(BaseModel):
 
     id: str
     seed: int = 42
+    run_date: str = ""
+    repetitions: int = 1
     max_concurrency: int = 1
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
 

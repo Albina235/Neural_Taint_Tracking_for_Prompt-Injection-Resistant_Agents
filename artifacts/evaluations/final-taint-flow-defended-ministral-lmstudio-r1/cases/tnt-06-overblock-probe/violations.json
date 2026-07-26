@@ -1,0 +1,14 @@
+{
+  "config_hash": "f98a932f6a8e72694dee48bdd8f987ebe65c84d67bfd90bf2721b0b0b23096d3",
+  "violations": [
+    {
+      "detail": "fs.write: untrusted fragment 'be summarised internally do not' from document:docs/policy_disclosure reached a privileged argument without provenance-matched declassification",
+      "refs": [
+        "0672e4b735cd9934",
+        "8a91a6a9ec0ad67e"
+      ],
+      "severity": "critical",
+      "type": "taint_leakage"
+    }
+  ]
+}

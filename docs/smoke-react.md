@@ -2,9 +2,9 @@
 
 The `langgraph_react` scaffold wires our async tool surface into LangGraph's
 prebuilt ReAct agent, with the LLM delivered through any OpenAI-compatible
-chat endpoint. The shipped sample config targets a local LM Studio instance
-serving Qwen3-VL-4B; the same config works against vLLM, OpenAI itself, or
-any other server speaking the OpenAI chat completions API.
+chat endpoint. The final configs target a local LM Studio instance serving
+`mistralai/ministral-3-14b-reasoning`. The scaffold can also work with another
+server speaking the OpenAI chat-completions API.
 
 ## What the scaffold does
 
@@ -18,6 +18,11 @@ after invocation, and emits an OpenInference-shaped span with
 with `langgraph.prebuilt.create_react_agent` and driven with
 `agent.ainvoke(...)`. The last `AIMessage` in the result is captured as
 the final answer and emitted as a FINAL span.
+
+The wrapper also stamps the resolved trust level, known/unknown status,
+privileged status, source or release provenance, and trust-policy fingerprint.
+Those are the same attributes used by online enforcement and offline
+rescoring. Unknown tools fail closed.
 
 The system prompt has three sources, in precedence order: the value passed
 into `Scaffold.run(system_prompt=...)` by the orchestrator (which itself
@@ -54,10 +59,9 @@ Verify the endpoint serves what you expect:
     curl -s -H 'Authorization: Bearer ${OPENAI_API_KEY}' \
         http://127.0.0.1:1234/v1/models
 
-The shipped `configs/smoke_fs_react.yaml` uses `model: qwen/qwen3-vl-4b`.
-Replace that with whatever model id your endpoint returns. For vLLM the
-id will be the HuggingFace path you launched with; for OpenAI itself it
-is something like `gpt-4o-mini`.
+The local endpoint used for the final run returned the exact model id
+`mistralai/ministral-3-14b-reasoning`. The client needs an API-key string, but
+LM Studio does not require a real key; `lm-studio` is only a local placeholder.
 
 ## Running it
 
@@ -70,6 +74,24 @@ the clean baseline (`fs-01-clean`) and one indirect-injection variant
 the scanner verdicts as `violations.json`, and a human-readable Markdown
 report at `report.md`. An aggregate `runs/smoke-fs-react/report.md` links
 to both case reports and totals up the violations.
+
+For the final taint-flow comparison, use the paired configs:
+
+    uv run taicf run -c configs/final_taint_flow_react.yaml
+    uv run taicf run -c configs/final_taint_flow_react_undefended.yaml
+
+Both now record model `mistralai/ministral-3-14b-reasoning`, temperature `0`, a
+2,048-token output cap, an 8,192-token evaluation envelope, and an 8-step
+limit. The defended config enables `taint_leakage`; the control has no
+scanners. They were executed separately for one repetition each on 2026-07-26.
+Generate behavior metrics from each completed run with
+`scripts/taint_metrics.py`, as shown in `docs/evaluation.md`.
+
+LM Studio reported its persisted loaded context as 55,040 tokens even after an
+8,192-token load request. The evaluated prompts and completions remained under
+the configured 8,192-token envelope. Endpoint and LangGraph tool-call
+validation is saved in
+`artifacts/evaluations/lmstudio-ministral-endpoint-validation-2026-07-26/validation.json`.
 
 ## What you should see
 
@@ -104,8 +126,9 @@ adding a new one to the same config:
 
 That re-projects the existing JSONL, re-runs the scanners, and rewrites
 the per-case and aggregate reports in place. The spans file is not
-touched. This is the reproducibility guarantee — a run is auditable from
-its frozen evidence indefinitely.
+touched. Rescoring first requires every span hash to match the frozen config;
+saved verdict hashes are separately checked by metric generation. A run is
+auditable from frozen evidence only after these integrity checks pass.
 
 ## Concurrency
 

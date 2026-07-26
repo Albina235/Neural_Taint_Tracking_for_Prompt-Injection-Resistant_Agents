@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.enums import Hook, Severity
 from core.task import GroundTruth
 from core.trace import Step
+
+if TYPE_CHECKING:
+    from core.trust import TrustPolicy
 
 
 class Violation(BaseModel):
@@ -59,6 +63,7 @@ class Scanner(ABC):
     id: str = "scanner"
     hooks: frozenset[Hook] = frozenset({Hook.POST_TURN})
     needs_truth: bool = False
+    trust_policy: TrustPolicy | None = None
 
     @abstractmethod
     def evaluate(self, ctx: ScanContext) -> list[Violation]:

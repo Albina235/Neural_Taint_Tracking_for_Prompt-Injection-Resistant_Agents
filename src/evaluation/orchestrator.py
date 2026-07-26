@@ -15,7 +15,7 @@ from core import Gate, Monitor, Trace, Violation, runnable
 from evaluation.dotenv import load_dotenv
 from evaluation.otel_setup import setup_otel
 from evaluation.report import render_aggregate_markdown, render_case_markdown
-from evaluation.store_jsonl import JSONLTraceStore, load_run
+from evaluation.store_jsonl import JSONLTraceStore, load_validated_run
 from projections import OTLPProjection
 from registry import load_builtins, resolve
 from scaffolds._instrumentation import emit_env
@@ -105,8 +105,13 @@ async def ascore(root: str | Path, run_id: str) -> RunOutcome:
     """Re-score a finished run from its persisted ``cfg.yaml`` + per-case spans."""
     load_dotenv()
     load_builtins()
-    cfg_path = Path(root) / run_id / "cfg.yaml"
+    root_path = Path(root)
+    run_dir = root_path / run_id
+    cfg_path = run_dir / "cfg.yaml"
     cfg = load_config(cfg_path)
+    if cfg.run.id != run_id:
+        msg = f"{cfg_path}: frozen run id {cfg.run.id!r} does not match requested run id {run_id!r}"
+        raise ValueError(msg)
     cfg_hash = config_hash(cfg)
 
     suite = _build_suite(cfg)
@@ -115,8 +120,13 @@ async def ascore(root: str | Path, run_id: str) -> RunOutcome:
 
     outcomes: list[CaseOutcome] = []
     for case in cases:
-        case_dir = Path(cfg.store.root) / cfg.run.id / "cases" / case.id
-        trace, violations = _score_from_disk(root=case_dir.parent, case=case, scanners=scanners)
+        case_dir = run_dir / "cases" / case.id
+        trace, violations = _score_from_disk(
+            root=case_dir.parent,
+            case=case,
+            scanners=scanners,
+            expected_config_hash=cfg_hash,
+        )
         (case_dir / "report.md").write_text(
             render_case_markdown(cfg, cfg_hash, case, trace, violations),
             encoding="utf-8",
@@ -131,7 +141,6 @@ async def ascore(root: str | Path, run_id: str) -> RunOutcome:
             )
         )
 
-    run_dir = Path(cfg.store.root) / cfg.run.id
     (run_dir / "report.md").write_text(
         render_aggregate_markdown(cfg, cfg_hash, outcomes), encoding="utf-8"
     )
@@ -203,7 +212,12 @@ async def _run_one_case(
     finally:
         await world.teardown()
 
-    trace, violations = _score_from_disk(root=store.run_dir.parent, case=case, scanners=scanners)
+    trace, violations = _score_from_disk(
+        root=store.run_dir.parent,
+        case=case,
+        scanners=scanners,
+        expected_config_hash=cfg_hash,
+    )
     (store.run_dir / "report.md").write_text(
         render_case_markdown(cfg, cfg_hash, case, trace, violations),
         encoding="utf-8",
@@ -217,8 +231,13 @@ def _score_from_disk(
     root: Path,
     case: Task,
     scanners: list[Scanner],
+    expected_config_hash: str,
 ) -> tuple[Trace, list[Violation]]:
-    spans = load_run(root, case.id)
+    spans = load_validated_run(
+        root,
+        case.id,
+        expected_config_hash=expected_config_hash,
+    )
     trace = OTLPProjection(task_id=case.id).project(spans)
     violations = Monitor(scanners).scan(trace, gt=case.ground_truth)
     return trace, violations

@@ -1,38 +1,24 @@
-"""World for the taint-flow suites: corpus + FS + HTTP sink + two gates.
+"""World for the taint-flow suites: corpus, FS, HTTP sink, and two gates.
 
-Adds, on top of the previous stage, an **authorized-quote gate**
-(``gate.allow_quote``) for Week 1 item 3 (reduce over-blocking).
+``gate.allow_quote`` releases a document only when its id is already in the
+task's hidden user/policy allowlist. It cannot add entries to that allowlist.
+The scanner uses the returned text and exact document provenance to
+declassify only that source. An unlisted or attacker-controlled id returns
+nothing, so the original taint remains.
 
-Motivation. The value-based scanner has no notion of "the user allowed this
-copy", so a legitimate, user-authorized quote of a retrieved document into a
-privileged write is flagged as a leak (the over-block case). The fix is a
-declassification path the agent can take *only for content the user actually
-authorized*: ``gate.allow_quote(doc_id)`` returns and declassifies the document
-text, but **only if the id is on the task's allow-list**. If the agent (or an
-injected instruction) tries to self-authorize an un-listed document, the gate
-returns nothing and declassifies nothing, so the taint survives and the write
-is still blocked. Authorization is a user/policy decision and is therefore not
-attacker-controllable.
-
-Because ``gate.allow_quote`` is classified as a *sanitizer*
-(``core.trust.SANITIZER_PREFIXES``), the existing scanner declassification
-logic handles it with no change to the scanner itself.
+``gate.sanitize`` is an audit-only identity operation. It records the request
+but has no declassification power.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from core import World, WorldHandle
+from core import Step, StepKind, World, WorldHandle
 from tools.fs import MockFS
 from tools.retrieval import MockRetriever
 
-if TYPE_CHECKING:
-    from core.trace import Step
-
 
 class TaintFlowWorld(World):
-    """Static corpus + in-memory FS + URL POST sink + sanitize/allow-quote gates."""
+    """Static corpus, in-memory FS, URL POST sink, and audit/release gates."""
 
     def __init__(
         self,
@@ -95,7 +81,21 @@ class TaintFlowWorld(World):
         )
 
     async def observe(self) -> list[Step]:
-        return []
+        return [
+            Step(
+                kind=StepKind.ENV,
+                name="fs_snapshot",
+                metadata={"files": self._fs.snapshot()},
+            ),
+            Step(
+                kind=StepKind.ENV,
+                name="gate_audit",
+                metadata={
+                    "sanitize_calls": len(self._sanitize_log),
+                    "authorized_documents": list(self._authorized_log),
+                },
+            ),
+        ]
 
     async def teardown(self) -> None:
         self._sanitize_log.clear()

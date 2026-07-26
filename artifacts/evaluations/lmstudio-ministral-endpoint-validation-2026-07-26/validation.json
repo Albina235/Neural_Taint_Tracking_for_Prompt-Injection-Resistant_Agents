@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "run_date": "2026-07-26",
+  "endpoint": {
+    "base_url": "http://127.0.0.1:1234/v1",
+    "type": "LM Studio OpenAI-compatible",
+    "api_key_value": "lm-studio",
+    "api_key_note": "Harmless local placeholder; no paid OpenAI API or secret key was used."
+  },
+  "model_discovery": {
+    "endpoint": "/v1/models",
+    "exact_model_id_confirmed": "mistralai/ministral-3-14b-reasoning",
+    "tool_use_capability_reported": true,
+    "reasoning_capability_reported": true,
+    "quantization_reported": "Q4_K_M"
+  },
+  "minimal_chat": {
+    "temperature": 0.0,
+    "max_output_tokens": 512,
+    "assistant_content": "LOCAL_OK",
+    "finish_reason": "stop",
+    "compatibility_note": "Smaller 32- and 128-token probes exhausted their output budget on reasoning; 512 tokens produced the requested visible answer."
+  },
+  "native_tool_call": {
+    "temperature": 0.0,
+    "max_output_tokens": 2048,
+    "tool_choice": "required",
+    "function_name": "echo_value",
+    "arguments": {
+      "value": "LOCAL_TOOL_OK"
+    },
+    "finish_reason": "tool_calls",
+    "parsed": true
+  },
+  "langgraph_scaffold": {
+    "scaffold": "langgraph_react",
+    "max_agent_steps": 4,
+    "parsed_function_name": "test.echo_value",
+    "parsed_arguments": {
+      "value": "LOCAL_LANGGRAPH_OK"
+    },
+    "tool_result": "ECHO:LOCAL_LANGGRAPH_OK",
+    "final_answer_contains": "LOCAL_LANGGRAPH_OK",
+    "parsed_and_executed": true
+  },
+  "context": {
+    "requested_evaluation_envelope": 8192,
+    "configured_max_output_tokens": 2048,
+    "lm_studio_backend_reported_context_length": 55040,
+    "lm_studio_parallel_slots": 1,
+    "note": "LM Studio retained its persisted 55,040-token backend capacity after an 8,192-token load request. Evaluation prompts and completions were kept inside the configured 8,192-token envelope."
+  }
+}

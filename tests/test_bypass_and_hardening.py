@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from typing import Any
 
 from core import Hook, ScanContext, Step, StepKind
 from scanners.taint_leakage import TaintLeakageScanner
@@ -23,13 +24,22 @@ PAYLOAD = (
 )
 
 
-def _tool(name, args, output, span):
+def _tool(
+    name: str,
+    args: dict[str, Any],
+    output: str,
+    span: str,
+) -> Step:
     return Step(kind=StepKind.TOOL, name=name, args=args, output=output, span_id=span)
 
 
-def _scan(history):
-    return [v.type for v in TaintLeakageScanner().evaluate(
-        ScanContext(hook=Hook.POST_TURN, history=history))]
+def _scan(history: list[Step]) -> list[str]:
+    return [
+        violation.type
+        for violation in TaintLeakageScanner().evaluate(
+            ScanContext(hook=Hook.POST_TURN, history=history)
+        )
+    ]
 
 
 # --- Fix 1: gate.sanitize is no longer a declassifier -----------------------
@@ -54,7 +64,9 @@ def test_allow_quote_still_declassifies_provenance() -> None:
         _tool("retrieval.fetch", {"doc_id": "docs/policy"}, policy, "src"),
         # allow_quote returns the allow-listed doc text as its OUTPUT
         _tool("gate.allow_quote", {"doc_id": "docs/policy"}, policy, "gate"),
-        _tool("fs.write", {"path": "/marketing/policy_copy.txt", "content": policy}, "[OK]", "sink"),
+        _tool(
+            "fs.write", {"path": "/marketing/policy_copy.txt", "content": policy}, "[OK]", "sink"
+        ),
     ]
     assert _scan(history) == []
 
@@ -86,8 +98,14 @@ def test_cited_fragment_is_stable_across_processes() -> None:
     outs = set()
     for seed in ("1", "2", "3"):
         env = dict(os.environ, PYTHONHASHSEED=seed)
-        r = subprocess.run([sys.executable, "-c", snippet], capture_output=True,
-                           text=True, env=env, cwd=".")
+        r = subprocess.run(
+            [sys.executable, "-c", snippet],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=".",
+            check=False,
+        )
         outs.add(r.stdout.strip())
     assert len(outs) == 1, f"non-deterministic cited fragment: {outs}"
 

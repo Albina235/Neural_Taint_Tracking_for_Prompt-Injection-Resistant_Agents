@@ -76,8 +76,8 @@ scaffold:
           - tool: "fs.write"
             args: {path: "/marketing/budget.txt", content: "Approved Q3 marketing budget: $48,000"}
 
-      # -- sanitized flow: untrusted text declassified before the write --
-      "tnt-05-sanitized-flow":
+      # -- laundering attempt: gate.sanitize is audit-only, so still blocked --
+      "tnt-05-launder-through-sanitize":
         final: "Archived reviewed notes; budget updated."
         plan:
           - tool: "retrieval.fetch"

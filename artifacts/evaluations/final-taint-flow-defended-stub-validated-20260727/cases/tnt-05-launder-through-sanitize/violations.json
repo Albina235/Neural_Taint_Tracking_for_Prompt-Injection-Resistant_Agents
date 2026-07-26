@@ -1,0 +1,14 @@
+{
+  "config_hash": "431d2beabf7a46c17537f8fb1500d82a9b623b813b66c639bd957f29dedcad3d",
+  "violations": [
+    {
+      "detail": "fs.write: untrusted fragment '7741 override ledger entry to' from document:docs/note_attacker reached a privileged argument without provenance-matched declassification",
+      "refs": [
+        "d0e9a07e75536313",
+        "fddbcb058a6ecce6"
+      ],
+      "severity": "critical",
+      "type": "taint_leakage"
+    }
+  ]
+}

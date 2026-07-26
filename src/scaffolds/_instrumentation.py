@@ -17,12 +17,12 @@ world surface.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from opentelemetry.trace import Status, StatusCode
 
 from core import WorldHandle
-from core.trust import TRUST_LEVEL_ATTR, TRUST_SOURCE_ATTR, classify_tool
+from core.trust import DEFAULT_TRUST_POLICY
 from evaluation.otel_setup import get_run_tracer
 
 if TYPE_CHECKING:
@@ -48,19 +48,21 @@ def _wrap(name: str, fn: AsyncToolFn, gate: Gate | None) -> AsyncToolFn:
     async def _call(**kwargs: object) -> str:
         tracer = get_run_tracer("taicf.tool")
         with tracer.start_as_current_span(f"tool.{name}") as span:
+            trust_metadata = (
+                gate.tool_metadata(name, dict(kwargs))
+                if gate is not None
+                else DEFAULT_TRUST_POLICY.metadata(name, dict(kwargs))
+            )
             span.set_attribute("openinference.span.kind", "TOOL")
             span.set_attribute("taicf.kind", "TOOL")
             span.set_attribute("tool.name", name)
             span.set_attribute("input.value", _json(kwargs))
             span.set_attribute("tool.parameters", _json(kwargs))
-            # taicf.trust.* propagation: stamp every tool span with its trust
-            # level so the projection can carry it onto the Step and the
-            # Taint-Scanner can resolve provenance without name heuristics.
-            span.set_attribute(TRUST_LEVEL_ATTR, classify_tool(name))
-            span.set_attribute(TRUST_SOURCE_ATTR, name)
+            for key, value in trust_metadata.items():
+                span.set_attribute(key, cast("Any", value))
 
             if gate is not None:
-                pre = gate.before_tool(name, dict(kwargs))
+                pre = gate.before_tool(name, dict(kwargs), metadata=trust_metadata)
                 if not pre.allow:
                     span.set_attribute("taicf.gate.decision", "block")
                     span.set_attribute("taicf.gate.reason", pre.reason)
@@ -80,7 +82,12 @@ def _wrap(name: str, fn: AsyncToolFn, gate: Gate | None) -> AsyncToolFn:
             span.set_attribute("output.value", result)
 
             if gate is not None:
-                post = gate.after_tool(name, dict(kwargs), result)
+                post = gate.after_tool(
+                    name,
+                    dict(kwargs),
+                    result,
+                    metadata=trust_metadata,
+                )
                 if not post.allow:
                     span.set_attribute("taicf.post_block.reason", post.reason)
             return result

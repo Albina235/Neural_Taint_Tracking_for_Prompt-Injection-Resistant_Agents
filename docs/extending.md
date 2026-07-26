@@ -171,6 +171,20 @@ the projection and the scanners and survives the LangChain function-name
 flattening (the scaffold maps dots to underscores for the LLM schema and
 then writes the dotted name back into the span attributes).
 
+Every new tool must also be classified in `core.trust.TrustPolicy`. Unknown
+tools deliberately fail closed: their outputs are treated as untrusted and
+their calls as privileged. Add the tool to the trusted/untrusted source sets or
+privileged sink set as appropriate, and define stable provenance for any
+untrusted output. Do not duplicate classification inside a scaffold or scanner;
+the wrapper, online Gate, trace attributes, and offline scanner all resolve the
+same policy fingerprint. Add a regression test that compares online and offline
+classification for the new tool.
+
+`gate.allow_quote` is a special provenance release, not a general sanitizer.
+It may release only an already authorized source and must stamp that exact
+release provenance. `gate.sanitize` is audit-only and must not be used as a
+declassifier in new suites or examples.
+
 If your world brings up heavy resources (a Docker container, a network
 sandbox), do it inside `setup()` and always release inside `teardown()`.
 The orchestrator wraps the case in a `try/finally`, so teardown runs even

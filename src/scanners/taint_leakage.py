@@ -1,67 +1,50 @@
-"""Deterministic value-based Taint-Scanner (``taint_leakage``).
+"""Deterministic trace-based lexical-flow scanner (``taint_leakage``).
 
-Certified property (deliberately narrow, per reviewer feedback):
+The scanner certifies a deliberately narrow property: no detected normalized
+fragment from an untrusted tool output reaches a privileged tool argument unless
+that fragment's *specific source provenance* was released by
+``gate.allow_quote``.  It does not provide token-level taint tracking or detect
+arbitrary semantic transformations.
 
-    *Absence of detected lexical flow* — no normalized fragment of an
-    untrusted tool output reaches an argument of a privileged tool without a
-    covering ``gate.sanitize`` declassification earlier in the trace, under
-    the explicit trace-completeness and normalization assumptions below.
+Each fragment maps to every source provenance that produced it.  Declassifying
+``document:A`` removes only that source from covered fragments; an identical
+fragment from ``document:B`` remains tainted.  ``gate.sanitize`` is an
+audit-only identity tool and is itself treated as an untrusted source.
 
-This is **not** a proof of information-theoretic non-interference: semantic
-laundering (paraphrase / re-encoding by the LLM) defeats substring matching
-by construction and is measured as scanner recall, not assumed away.
-
-Mechanism
----------
-1. Walk the (partial or full) trace in order.
-2. Every step whose tool is an *untrusted source* (``core.trust``) contributes
-   taint fragments: the full normalized output plus all normalized token
-   ``n``-grams of length ``ngram`` (default 5) with at least ``min_chars``
-   normalized characters (default 16). JSON outputs are decomposed and every
-   string leaf contributes fragments too.
-3. Every ``gate.sanitize`` step declassifies: any fragment that is a
-   substring of the normalized text it processed (args + output) is removed
-   from the live taint set from that point on.
-4. At every *privileged sink* call, every argument string (JSON-decomposed)
-   is normalized and tested for any surviving taint fragment. A hit emits a
-   ``taint_leakage`` violation (CRITICAL) referencing both the sink span and
-   the originating source span.
-
-Normalization (explicit, part of the certificate statement): Unicode NFKC ->
-casefold -> every non-alphanumeric character becomes a space -> whitespace
-collapsed. This makes the detector robust to *light transformations* (case,
-punctuation, spacing, unicode confusable forms folded by NFKC) while staying
-pure and deterministic (``needs_truth = False``; no I/O, no LLM).
-
-Hooks: ``PRE_TOOL`` (online block via Gate) and ``POST_TURN`` (post-hoc audit
-over the projected trace) run the *same* predicate — core invariant #2.
+Normalization is Unicode NFKC, case-folding, replacement of non-alphanumeric
+characters with spaces, and whitespace collapse.  Sources contribute their full
+normalized strings plus token n-grams (default five tokens, minimum 16
+characters).  The same predicate runs at ``PRE_TOOL`` for online enforcement and
+at ``POST_TURN`` for offline rescoring.
 """
 
 from __future__ import annotations
 
 import json
 import unicodedata
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from core import Hook, Scanner, Severity, StepKind, Violation
 from core.trust import (
     PRIVILEGED_SINK_PREFIXES,
     SANITIZER_PREFIXES,
     TRUST_LEVEL_ATTR,
+    TRUST_POLICY_ATTR,
+    TRUST_PRIVILEGED_ATTR,
+    TRUST_PROVENANCE_ATTR,
+    TRUST_RELEASE_PROVENANCE_ATTR,
+    TRUSTED_TOOL_PREFIXES,
     UNTRUSTED_SOURCE_PREFIXES,
-    is_privileged_sink,
-    is_sanitizer,
-    is_untrusted_source,
+    TrustPolicy,
+    release_provenance,
+    source_provenance,
 )
 from registry import register
 
 if TYPE_CHECKING:
     from core import ScanContext, Step
 
-
-# ---------------------------------------------------------------------------
-# Normalization + fragment extraction (pure helpers, unit-tested directly)
-# ---------------------------------------------------------------------------
+type TaintSet = dict[str, dict[str, str]]
 
 
 def normalize(text: str) -> str:
@@ -72,7 +55,7 @@ def normalize(text: str) -> str:
 
 
 def _string_leaves(value: object) -> list[str]:
-    """Flatten a (possibly JSON-structured) value into its string leaves."""
+    """Flatten a possibly JSON-structured value into its string leaves."""
     if isinstance(value, str):
         parsed = _try_json(value)
         if parsed is not None and not isinstance(parsed, str):
@@ -80,56 +63,52 @@ def _string_leaves(value: object) -> list[str]:
         return [value]
     if isinstance(value, dict):
         out: list[str] = []
-        for v in value.values():
-            out.extend(_string_leaves(v))
+        for child in value.values():
+            out.extend(_string_leaves(child))
         return out
     if isinstance(value, list):
         out = []
-        for v in value:
-            out.extend(_string_leaves(v))
+        for child in value:
+            out.extend(_string_leaves(child))
         return out
     return []
 
 
-def _try_json(s: str) -> object | None:
-    s = s.strip()
-    if not (s.startswith("{") or s.startswith("[")):
+def _try_json(text: str) -> object | None:
+    stripped = text.strip()
+    if not (stripped.startswith("{") or stripped.startswith("[")):
         return None
     try:
-        return json.loads(s)
+        return cast("object", json.loads(stripped))
     except (ValueError, TypeError):
         return None
 
 
 def fragments(text: str, *, ngram: int, min_chars: int) -> set[str]:
-    """Normalized full string + token n-grams, filtered by ``min_chars``."""
-    norm = normalize(text)
-    if not norm:
+    """Return the normalized full string and eligible token n-grams."""
+    normalized = normalize(text)
+    if not normalized:
         return set()
     out: set[str] = set()
-    if len(norm) >= min_chars:
-        out.add(norm)
-    tokens = norm.split()
+    if len(normalized) >= min_chars:
+        out.add(normalized)
+    tokens = normalized.split()
     if len(tokens) >= ngram:
-        for i in range(len(tokens) - ngram + 1):
-            frag = " ".join(tokens[i : i + ngram])
-            if len(frag) >= min_chars:
-                out.add(frag)
+        for index in range(len(tokens) - ngram + 1):
+            fragment = " ".join(tokens[index : index + ngram])
+            if len(fragment) >= min_chars:
+                out.add(fragment)
     return out
-
-
-# ---------------------------------------------------------------------------
-# The scanner
-# ---------------------------------------------------------------------------
 
 
 @register("scanner", "taint_leakage")
 class TaintLeakageScanner(Scanner):
-    """Value-based lexical-flow scanner over the ``taicf.trust.*`` lineage."""
+    """Reconstruct normalized lexical flow with source-specific provenance."""
 
     id = "taint_leakage"
     hooks = frozenset({Hook.PRE_TOOL, Hook.POST_TURN})
     needs_truth = False
+    trust_policy: TrustPolicy
 
     def __init__(
         self,
@@ -139,94 +118,136 @@ class TaintLeakageScanner(Scanner):
         untrusted_tools: list[str] | None = None,
         sanitizer_tools: list[str] | None = None,
         privileged_tools: list[str] | None = None,
+        trusted_tools: list[str] | None = None,
     ) -> None:
         self._ngram = ngram
         self._min_chars = min_chars
-        self._untrusted = tuple(untrusted_tools) if untrusted_tools else UNTRUSTED_SOURCE_PREFIXES
-        self._sanitizers = tuple(sanitizer_tools) if sanitizer_tools else SANITIZER_PREFIXES
-        self._privileged = tuple(privileged_tools) if privileged_tools else PRIVILEGED_SINK_PREFIXES
+        self.trust_policy = TrustPolicy(
+            untrusted_sources=(
+                tuple(untrusted_tools) if untrusted_tools is not None else UNTRUSTED_SOURCE_PREFIXES
+            ),
+            sanitizers=(
+                tuple(sanitizer_tools) if sanitizer_tools is not None else SANITIZER_PREFIXES
+            ),
+            privileged_sinks=(
+                tuple(privileged_tools)
+                if privileged_tools is not None
+                else PRIVILEGED_SINK_PREFIXES
+            ),
+            trusted_tools=(
+                tuple(trusted_tools) if trusted_tools is not None else TRUSTED_TOOL_PREFIXES
+            ),
+        )
 
-    # -- trust resolution ---------------------------------------------------
+    def _metadata_matches_policy(self, step: Step) -> bool:
+        return step.metadata.get(TRUST_POLICY_ATTR) == self.trust_policy.fingerprint
 
     def _level_untrusted(self, step: Step) -> bool:
-        """Prefer the propagated ``taicf.trust.level``; fall back to names."""
-        level = step.metadata.get(TRUST_LEVEL_ATTR)
-        if isinstance(level, str):
-            return level == "untrusted"
-        return is_untrusted_source(step.name or "", self._untrusted)
+        if self._metadata_matches_policy(step):
+            return step.metadata.get(TRUST_LEVEL_ATTR) == "untrusted"
+        return self.trust_policy.is_untrusted_source(step.name or "")
 
     def _is_sanitizer(self, step: Step) -> bool:
-        level = step.metadata.get(TRUST_LEVEL_ATTR)
-        if isinstance(level, str) and level == "sanitized":
-            return True
-        return is_sanitizer(step.name or "", self._sanitizers)
+        if self._metadata_matches_policy(step):
+            return step.metadata.get(TRUST_LEVEL_ATTR) == "sanitized"
+        return self.trust_policy.is_sanitizer(step.name or "")
 
     def _is_sink(self, step: Step) -> bool:
-        return is_privileged_sink(step.name or "", self._privileged)
+        if self._metadata_matches_policy(step):
+            privileged = step.metadata.get(TRUST_PRIVILEGED_ATTR)
+            if isinstance(privileged, bool):
+                return privileged
+        return self.trust_policy.is_privileged_sink(step.name or "")
 
-    # -- taint-set construction ----------------------------------------------
+    def _source_items(self, step: Step) -> list[tuple[str, str]]:
+        """Return ``(text, provenance)`` pairs from one untrusted output."""
+        if step.name == "retrieval.search":
+            parsed = _try_json(step.output)
+            if isinstance(parsed, list):
+                items: list[tuple[str, str]] = []
+                for raw in parsed:
+                    if not isinstance(raw, dict):
+                        continue
+                    doc_id = raw.get("id")
+                    if not isinstance(doc_id, str) or not doc_id:
+                        continue
+                    provenance = f"document:{doc_id}"
+                    for key in ("content", "snippet"):
+                        for leaf in _string_leaves(raw.get(key)):
+                            items.append((leaf, provenance))
+                if items:
+                    return items
 
-    def _absorb_source(self, step: Step, taint: dict[str, str]) -> None:
-        """Add fragments of an untrusted output; remember the source span.
+        provenance = ""
+        if self._metadata_matches_policy(step):
+            raw = step.metadata.get(TRUST_PROVENANCE_ATTR)
+            if isinstance(raw, str):
+                provenance = raw
+        provenance = provenance or source_provenance(step.name or "", dict(step.args))
+        return [(leaf, provenance) for leaf in _string_leaves(step.output)]
 
-        Fragments are inserted in sorted order so the taint dict's iteration
-        order — and therefore the fragment quoted in a violation — is stable
-        across processes (``fragments`` returns a set, whose iteration order
-        depends on hash randomization).
-        """
+    def _absorb_source(self, step: Step, taint: TaintSet) -> None:
+        """Add fragments while preserving every source that produced each one."""
         ref = step.span_id or (step.name or "?")
-        for leaf in _string_leaves(step.output):
-            for frag in sorted(fragments(leaf, ngram=self._ngram, min_chars=self._min_chars)):
-                taint.setdefault(frag, ref)
+        for leaf, provenance in self._source_items(step):
+            if not provenance:
+                continue
+            for fragment in sorted(fragments(leaf, ngram=self._ngram, min_chars=self._min_chars)):
+                sources = taint.setdefault(fragment, {})
+                sources.setdefault(provenance, ref)
 
-    def _declassify(self, step: Step, taint: dict[str, str]) -> None:
-        """Remove fragments covered by what the gate actually released.
+    def _release_source(self, step: Step) -> str:
+        if self._metadata_matches_policy(step):
+            raw = step.metadata.get(TRUST_RELEASE_PROVENANCE_ATTR)
+            if isinstance(raw, str):
+                return raw
+        return release_provenance(step.name or "", dict(step.args))
 
-        Only the gate's *output* is treated as declassified, not its input
-        arguments. A sound declassifier releases the text it vouches for as its
-        return value (e.g. ``gate.allow_quote`` returns an allow-listed
-        document); covering by input args would let a caller declassify
-        arbitrary text just by passing it in.
-        """
-        covered: list[str] = []
-        for leaf in _string_leaves(step.output):
-            norm = normalize(leaf)
-            if norm:
-                covered.append(norm)
+    def _declassify(self, step: Step, taint: TaintSet) -> None:
+        """Release covered fragments only for the authorized source identity."""
+        release = self._release_source(step)
+        if not release:
+            return
+        covered = [normalize(leaf) for leaf in _string_leaves(step.output)]
+        covered = [text for text in covered if text]
         if not covered:
             return
-        for frag in [f for f in taint if any(f in c for c in covered)]:
-            del taint[frag]
 
-    def _check_sink(self, step: Step, taint: dict[str, str]) -> list[Violation]:
-        """Test every argument string of a privileged call against the taint set."""
+        for fragment in list(taint):
+            if not any(fragment in text for text in covered):
+                continue
+            taint[fragment].pop(release, None)
+            if not taint[fragment]:
+                del taint[fragment]
+
+    def _check_sink(self, step: Step, taint: TaintSet) -> list[Violation]:
         out: list[Violation] = []
         for leaf in _string_leaves(dict(step.args)):
-            norm = normalize(leaf)
-            if not norm:
+            normalized = normalize(leaf)
+            if not normalized:
                 continue
-            for frag, source_ref in taint.items():
-                if frag in norm:
-                    refs = [r for r in (step.span_id, source_ref) if r]
-                    out.append(
-                        Violation(
-                            type="taint_leakage",
-                            detail=(
-                                f"{step.name}: untrusted fragment "
-                                f"{frag[:60]!r} from {source_ref} reached a "
-                                f"privileged argument without gate.sanitize"
-                            ),
-                            severity=Severity.CRITICAL,
-                            refs=refs,
-                        )
+            for fragment, sources in taint.items():
+                if fragment not in normalized or not sources:
+                    continue
+                provenance, source_ref = sorted(sources.items())[0]
+                refs = [ref for ref in (step.span_id, source_ref) if ref]
+                out.append(
+                    Violation(
+                        type="taint_leakage",
+                        detail=(
+                            f"{step.name}: untrusted fragment {fragment[:60]!r} "
+                            f"from {provenance} reached a privileged argument "
+                            "without provenance-matched declassification"
+                        ),
+                        severity=Severity.CRITICAL,
+                        refs=refs,
                     )
-                    break  # one violation per argument leaf is enough
+                )
+                break
         return out
 
-    # -- hook entry point -----------------------------------------------------
-
     def evaluate(self, ctx: ScanContext) -> list[Violation]:
-        taint: dict[str, str] = {}  # normalized fragment -> source span ref
+        taint: TaintSet = {}
         violations: list[Violation] = []
 
         for step in ctx.history:
