@@ -71,7 +71,7 @@ See [docs/architecture.md](docs/architecture.md) for the full component model.
 ## Quickstart
 
 The deterministic tests and fixed-replay evaluations run on CPU without an API
-key:
+key.
 
     uv sync
     uv run pytest
@@ -80,6 +80,9 @@ key:
       artifacts/evaluations/final-taint-flow-defended-stub-validated-20260727 \
       --json-out \
       artifacts/evaluations/final-taint-flow-defended-stub-validated-20260727/metrics.json
+
+The saved real-LLM evidence can be validated without installing LM Studio or
+downloading the model. LM Studio is required only to execute the agent again. 
 
 To rescore an existing run without executing the scaffold:
 
@@ -173,14 +176,54 @@ after an 8,192-token load request. The run configurations still kept each
 experiment within the stated 8,192-token envelope. Endpoint validation,
 including native tool calling and LangGraph parsing, is saved under
 `artifacts/evaluations/lmstudio-ministral-endpoint-validation-2026-07-26/`.
+#### Reproducing the local LLM run
+
+The core tests, fixed-replay evaluations, and saved-evidence verification do
+not require a local model. A local model is needed only to execute the
+real-agent evaluation again.
+
+Install LM Studio or its headless `llmster` service. On macOS and Linux,
+`llmster` can be installed with:
+
+    curl -fsSL https://lmstudio.ai/install.sh | bash
+
+Download the GGUF `Q4_K_M` version of
+`mistralai/ministral-3-14b-reasoning`. Load it with an 8,192-token context and
+serve it through the OpenAI-compatible API using the model identifier
+`mistralai/ministral-3-14b-reasoning`.
+
+Start the local service, load the model, and start the API server:
+
+    lms daemon up
+    lms load --gpu max --context-length 8192
+    lms server start --port 1234
+
+Confirm that the correct model is available:
+
+    curl http://127.0.0.1:1234/v1/models
+
+The response must contain:
+
+    mistralai/ministral-3-14b-reasoning
+
+LM Studio does not require a real API key. The placeholder below only satisfies
+the OpenAI-compatible client:
 
     export OPENAI_API_KEY=lm-studio
+
+Then run the paired evaluation:
+
     uv run taicf run -c configs/final_taint_flow_react.yaml
     uv run taicf run -c configs/final_taint_flow_react_undefended.yaml
+
+After the run, generate the defended metrics with:
+
     uv run python scripts/taint_metrics.py \
       artifacts/evaluations/final-taint-flow-defended-ministral-lmstudio-r1 \
       --json-out \
       artifacts/evaluations/final-taint-flow-defended-ministral-lmstudio-r1/metrics.json
+
+The downloaded model weights are not stored in this repository.
 
 More setup, control-run commands, and interpretation guidance are in
 [docs/smoke-react.md](docs/smoke-react.md).
